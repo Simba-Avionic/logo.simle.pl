@@ -41,13 +41,30 @@ const SimLELogoCreator = () => {
   
   const [tempColor, setTempColor] = useState('#000000');
 
+  // Wczytywanie nazwy projektu
+  const [projectName, setProjectName] = useState(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const dataParam = urlParams.get('d');
+      if (dataParam) {
+         const parsed = JSON.parse(atob(dataParam));
+         if (parsed.projectName) return parsed.projectName;
+      }
+      const saved = localStorage.getItem('simle_project_name');
+      return saved ? saved : 'Projekt';
+    } catch (e) {
+      return 'Projekt';
+    }
+  });
+
   // Efekt zapisujący stan w localStorage oraz kodujący go do Base64 w pasku adresu
   useEffect(() => {
     localStorage.setItem('simle_painted_triangles', JSON.stringify(paintedTriangles));
     localStorage.setItem('simle_custom_colors', JSON.stringify(customColors));
+    localStorage.setItem('simle_project_name', projectName);
     
     try {
-      const stateToEncode = { triangles: paintedTriangles, colors: customColors };
+      const stateToEncode = { triangles: paintedTriangles, colors: customColors, projectName };
       const encoded = btoa(JSON.stringify(stateToEncode));
       const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?d=${encoded}`;
       // Zmieniamy adres URL bez przeładowywania strony
@@ -55,7 +72,7 @@ const SimLELogoCreator = () => {
     } catch(e) {
       console.error("Błąd kodowania adresu URL", e);
     }
-  }, [paintedTriangles, customColors]);
+  }, [paintedTriangles, customColors, projectName]);
 
   // Paleta kolorów bazująca na standardowych kolorach identyfikacji studenckiej / tech
   const colors = [
@@ -262,14 +279,20 @@ const SimLELogoCreator = () => {
     const svgBlob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
     const svgUrl = URL.createObjectURL(svgBlob);
     
+    // Formatowanie daty i dynamicznej nazwy pliku
+    const date = new Date();
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const safeProjectName = projectName.trim().replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_') || 'Projekt';
+    const fileName = `SimLE_${safeProjectName}_${dateStr}.svg`;
+    
     const downloadLink = document.createElement("a");
     downloadLink.href = svgUrl;
-    downloadLink.download = "simle-logo-wektor.svg";
+    downloadLink.download = fileName;
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);
 
-    setToastMessage('Logo pobrane w formacie SVG!');
+    setToastMessage(`Pobrano plik: ${fileName}`);
     setTimeout(() => setToastMessage(''), 3000);
   };
 
@@ -287,28 +310,41 @@ const SimLELogoCreator = () => {
               Zaznaczaj trójkąty na siatce, aby stworzyć dynamiczną kompozycję inspirowaną ciągiem Fibonacciego i geometrią, zgodnie z księgą znaku.
             </p>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={clearCanvas}
-              className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-md transition-colors text-sm font-medium"
-            >
-              <Trash2 className="w-4 h-4" />
-              Wyczyść
-            </button>
-            <button
-              onClick={copyShareLink}
-              className="flex items-center gap-2 px-4 py-2 bg-[#D4CA05]/20 hover:bg-[#D4CA05]/30 text-[#D4CA05] border border-[#D4CA05]/50 rounded-md transition-colors text-sm font-medium"
-            >
-              <Link className="w-4 h-4" />
-              Udostępnij
-            </button>
-            <button
-              onClick={downloadSvg}
-              className="flex items-center gap-2 px-4 py-2 bg-[#D4CA05] hover:bg-[#b8ae04] text-[#062D34] rounded-md transition-colors text-sm font-bold shadow-sm"
-            >
-              <Download className="w-4 h-4" />
-              Pobierz SVG
-            </button>
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+            <input
+              type="text"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Nazwa projektu"
+              maxLength={30}
+              className="bg-white/10 border border-white/20 text-white placeholder-white/50 px-3 py-2 rounded-md text-sm focus:outline-none focus:border-[#D4CA05] focus:bg-white/20 transition-colors w-full sm:w-40"
+              title="Nazwa projektu"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={clearCanvas}
+                className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-md transition-colors text-sm font-medium"
+                title="Wyczyść płótno"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden md:inline">Wyczyść</span>
+              </button>
+              <button
+                onClick={copyShareLink}
+                className="flex items-center gap-2 px-3 py-2 bg-[#D4CA05]/20 hover:bg-[#D4CA05]/30 text-[#D4CA05] border border-[#D4CA05]/50 rounded-md transition-colors text-sm font-medium"
+                title="Skopiuj link do udostępnienia"
+              >
+                <Link className="w-4 h-4" />
+                <span className="hidden md:inline">Udostępnij</span>
+              </button>
+              <button
+                onClick={downloadSvg}
+                className="flex items-center gap-2 px-4 py-2 bg-[#D4CA05] hover:bg-[#b8ae04] text-[#062D34] rounded-md transition-colors text-sm font-bold shadow-sm"
+              >
+                <Download className="w-4 h-4" />
+                Pobierz SVG
+              </button>
+            </div>
           </div>
         </div>
       </header>
