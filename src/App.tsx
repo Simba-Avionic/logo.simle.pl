@@ -245,222 +245,49 @@ const SimLELogoCreator = () => {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  const downloadSvg = () => {
-    // Filtrujemy tylko pomalowane trójkąty
-    const paintedShapes = gridConfig.triangles.filter(t => paintedTriangles[t.id] !== undefined);
+  const downloadExport = (type: 'sygnet' | 'logo') => {
+    requestAnimationFrame(() => {
+      const svgElement = document.getElementById(`${type}-visualization`);
 
+      if (!svgElement) {
+        console.error(`Nie znaleziono elementu logo-canvas`);
+        setToastMessage(`Nie znaleziono elementu logo-canvas`);
+      
+        setTimeout(() => setToastMessage(''), 4000);
+        return;
+      }
+      
+      const svgContent = new XMLSerializer().serializeToString(svgElement);
+
+      const svgBlob = new Blob([svgContent.trim()], { type: "image/svg+xml;charset=utf-8" });
+      const svgUrl = URL.createObjectURL(svgBlob);
+      
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const safeProjectName = projectName.trim().replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_') || 'Projekt';
+      const typeName = type === 'logo' ? 'Logo' : 'Sygnet';
+      const fileName = `SimLE_${typeName}_${safeProjectName}_${dateStr}.svg`;
+      
+      const downloadLink = document.createElement("a");
+      downloadLink.href = svgUrl;
+      downloadLink.download = fileName;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+
+      setToastMessage(`Pobrano plik: ${fileName}`);
+      
+      setTimeout(() => setToastMessage(''), 4000);
+      });
+  };
+
+  const renderSVG = (type: 'sygnet' | 'logo') => {
+    const paintedShapes = gridConfig.triangles.filter(t => paintedTriangles[t.id] !== undefined);
+    
     if (paintedShapes.length === 0) {
       setToastMessage('Brak elementów do eksportu!');
       setTimeout(() => setToastMessage(''), 3000);
-      return;
-    }
-
-    // 1. Wyliczenie granic sygnetu
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    paintedShapes.forEach(triangle => {
-      triangle.points.split(' ').forEach(pt => {
-        const [x, y] = pt.split(',').map(Number);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      });
-    });
-
-    const sygnetWidth = maxX - minX;
-    const sygnetHeight = maxY - minY;
-
-    // 2. Tworzenie jednolitych ścieżek
-    const colorGroups: Record<string, typeof paintedShapes> = {};
-    paintedShapes.forEach(t => {
-      const color = paintedTriangles[t.id];
-      if (!colorGroups[color]) colorGroups[color] = [];
-      colorGroups[color].push(t);
-    });
-
-    let pathsSvg = '';
-
-    for (const [color, triangles] of Object.entries(colorGroups)) {
-      const edges = new Map();
-
-      // Krok 1: Identyfikacja wszystkich krawędzi trójkątów
-      triangles.forEach(t => {
-        const pts = t.points.split(' ');
-        for (let i = 0; i < 3; i++) {
-          const from = pts[i];
-          const to = pts[(i + 1) % 3];
-          const edgeKey = `${from}|${to}`;
-          const reverseKey = `${to}|${from}`;
-
-          // Jeżeli odwrotna krawędź już istnieje, oznacza to że dwa trójkąty tego samego koloru 
-          // stykają się tym bokiem. Usuwamy ją, by pozostawić wyłącznie zarys zewnętrzny.
-          if (edges.has(reverseKey)) {
-            edges.delete(reverseKey);
-          } else {
-            edges.set(edgeKey, { from, to });
-          }
-        }
-      });
-
-      // Krok 2: Konstruowanie ciągłych ścieżek z odfiltrowanych krawędzi brzegowych
-      let colorPaths = '';
-      while (edges.size > 0) {
-        // Bierzemy pierwszą dowolną krawędź ze stosu jako start
-        const entry = edges.entries().next().value;
-        if (!entry) continue; // Przerwij pętlę, jeśli mapa jest pusta
-        const [firstKey, firstEdge] = entry;
-        edges.delete(firstKey);
-
-        let currentPath = `M ${firstEdge.from.replace(',', ' ')} L ${firstEdge.to.replace(',', ' ')}`;
-        let currentTo = firstEdge.to;
-        const startNode = firstEdge.from;
-
-        // Szukamy następników budując obrys aż wrócimy do punktu startu
-        while (currentTo !== startNode) {
-          let nextEdgeKey = null;
-          for (const [key, edge] of edges.entries()) {
-            if (edge.from === currentTo) {
-              nextEdgeKey = key;
-              break;
-            }
-          }
-
-          if (!nextEdgeKey) break; // Awaryjne przerwanie (na siatce się nie zdarza)
-
-          const nextEdge = edges.get(nextEdgeKey);
-          currentPath += ` L ${nextEdge.to.replace(',', ' ')}`;
-          currentTo = nextEdge.to;
-          edges.delete(nextEdgeKey);
-        }
-        currentPath += ' Z';
-        colorPaths += currentPath + ' ';
-      }
-
-      // Finalne zapisanie całego konturu dla danego koloru (może składać się z wysp/dziur)
-      pathsSvg += `  <path d="${colorPaths.trim()}" fill="${color}" />\n`;
-    }
-
-    // 3. Budowanie SVG
-    let svgContent = '';
-
-    if (type === 'sygnet') {
-      const side = 40; 
-      const h = side * Math.sqrt(3) / 2; 
-      const paddingX = side * 2; 
-      const paddingY = h * 2;    
-
-      const vX = minX - paddingX;
-      const vY = minY - paddingY;
-      const vWidth = sygnetWidth + paddingX * 2;
-      const vHeight = sygnetHeight + paddingY * 2;
-
-      svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${vWidth}" height="${vHeight}" viewBox="${vX} ${vY} ${vWidth} ${vHeight}">\n${pathsSvg}</svg>`;
-    } 
-    else if (type === 'logo') {
-      const simleHeight = 56;
-      const visualTextHeight = simleHeight * 0.6; 
-      const projectSpacing = simleHeight * 0.3;  
-      const capHeightRatio = 0.73;
-      const actualFontSize = visualTextHeight / capHeightRatio;
-      const textBlockHeight = projectName.trim() ? (simleHeight + projectSpacing + visualTextHeight) : simleHeight;
-      
-      const scale = textBlockHeight / sygnetHeight;
-      const scaledSygnetWidth = sygnetWidth * scale;
-      const gap = 40 * scale; 
-
-      let estimatedTextWidth = Math.max(300, projectName.length * (actualFontSize * 1.1));
-      let textElement = '';
-
-      if (projectName.trim()) {
-        const textToRender = projectName.toUpperCase();
-        let vectorPaths = '';
-        
-        if (font) {
-          let currentX = 0;
-          const letterSpacePx = actualFontSize * 0.05;
-          
-          try {
-            for (let i = 0; i < textToRender.length; i++) {
-              const char = textToRender[i];
-              const glyph = font.charToGlyph(char);
-              const path = glyph.getPath(currentX, simleHeight + projectSpacing + visualTextHeight, actualFontSize);
-              vectorPaths += path.toPathData(3) + ' ';
-              currentX += glyph.advanceWidth * (actualFontSize / font.unitsPerEm) + letterSpacePx;
-            }
-            exactTextWidth = Math.max(300, currentX - letterSpacePx);
-            
-            if (vectorPaths.trim()) {
-              textElement = `<path d="${vectorPaths.trim()}" fill="${primaryColor}" />`;
-            }
-          } catch (err) {
-            console.error("Błąd podczas eksportu wektora:", err);
-          }
-        }
-        
-        // Zabezpieczenie na wypadek niepowodzenia wektoryzacji (np. empty string)
-        if (!textElement) {
-          textElement = `<text x="0" y="${simleHeight + projectSpacing + visualTextHeight}" font-family="'Science Gothic', sans-serif" font-size="${actualFontSize}" font-weight="500" fill="${primaryColor}" style="text-transform: uppercase" letter-spacing="0.05em">${textToRender}</text>`;
-        }
-      }
-
-      const totalWidth = scaledSygnetWidth + gap + estimatedTextWidth + 20; 
-      const rawSimlePaths = simleTextPaths.map(p => `<g transform="${p.transform}"><path d="${p.d}" fill="#70706f" fill-rule="nonzero" /></g>`).join('');
-      
-      const defsElement = (font && textElement.startsWith('<path')) ? '' : `
-          <defs>
-            <style>
-              @import url('https://fonts.googleapis.com/css2?family=Science+Gothic:wght@500;700&amp;display=swap');
-            </style>
-          </defs>`;
-
-      svgContent = `
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${textBlockHeight}">${defsElement}
-          <g transform="scale(${scale}) translate(${-minX}, ${-minY})">
-            ${pathsSvg}
-          </g>
-          <g transform="translate(${scaledSygnetWidth + gap}, 0)">
-            <g transform="translate(-505.8, -371.9)">
-              <g transform="matrix(1.3333333,0,0,-1.3333333,0,793.70667)">
-                ${rawSimlePaths}
-              </g>
-            </g>
-            ${textElement}
-          </g>
-        </svg>
-      `;
-    }
-
-    const svgBlob = new Blob([svgContent.trim()], { type: "image/svg+xml;charset=utf-8" });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    
-    // Formatowanie daty i dynamicznej nazwy pliku
-    const date = new Date();
-    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    const safeProjectName = projectName.trim().replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_') || 'Projekt';
-    const typeName = type === 'logo' ? 'Logo' : 'Sygnet';
-    const fileName = `SimLE_${typeName}_${safeProjectName}_${dateStr}.svg`;
-    
-    const downloadLink = document.createElement("a");
-    downloadLink.href = svgUrl;
-    downloadLink.download = fileName;
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
-
-    setToastMessage(`Pobrano plik: ${fileName}`);
-    setTimeout(() => setToastMessage(''), 3000);
-  };
-
-  const renderVisualization = () => {
-    const paintedShapes = gridConfig.triangles.filter(t => paintedTriangles[t.id] !== undefined);
-    
-    if (paintedShapes.length === 0) {
-      return (
-        <div className="text-gray-400 flex flex-col items-center gap-2 py-8">
-          <Eye className="w-8 h-8 opacity-50" />
-          <p>Narysuj sygnet, aby zobaczyć wizualizację logo.</p>
-        </div>
-      );
+      return "";
     }
 
     // Obliczanie obszaru (bounding box) tylko dla pokolorowanych trójkątów
@@ -529,33 +356,28 @@ const SimLELogoCreator = () => {
         }
       }
       
-      if (!textRender) {
-        textRender = (
-          <text
-            x="0"
-            y={simleHeight + projectSpacing + visualTextHeight}
-            fontFamily="'Science Gothic', sans-serif"
-            fontSize={actualFontSize}
-            fontWeight="500"
-            fill={primaryColor}
-            style={{ textTransform: 'uppercase' }}
-            letterSpacing="0.05em"
-          >
-            {textToRender}
-          </text>
-        );
-      }
+      // if (!textRender) {
+      //   textRender = (
+      //     <text
+      //       x="0"
+      //       y={simleHeight + projectSpacing + visualTextHeight}
+      //       fontFamily="'Science Gothic', sans-serif"
+      //       fontSize={actualFontSize}
+      //       fontWeight="500"
+      //       fill={primaryColor}
+      //       style={{ textTransform: 'uppercase' }}
+      //       letterSpacing="0.05em"
+      //     >
+      //       {textToRender}
+      //     </text>
+      //   );
+      // }
     }
 
     const totalWidth = scaledSygnetWidth + gap + exactTextWidth + 20;
 
-    return (
-      <svg
-        viewBox={`0 0 ${totalWidth} ${textBlockHeight}`}
-        className="w-auto max-w-full drop-shadow-sm h-full max-h-32"
-      >
-        {/* Narysowany Sygnet z wyrównaniem do 0,0 i nałożoną skalą */}
-        <g transform={`scale(${scale}) translate(${-minX}, ${-minY})`}>
+    const sygnet = (
+      <g transform={`scale(${scale}) translate(${-minX}, ${-minY})`}>
           {paintedShapes.map(t => (
             <polygon 
               key={`viz-${t.id}`} 
@@ -566,10 +388,10 @@ const SimLELogoCreator = () => {
             />
           ))}
         </g>
+    );
 
-        {/* Blok z Logotypem i Nazwą Projektu */}
+    const logo = (
         <g transform={`translate(${scaledSygnetWidth + gap}, 0)`}>
-          {/* Szary logotyp SimLE - transformacja wyrównuje go idealnie do współrzędnych 0,0 */}
           <g transform="translate(-505.8, -371.9)">
             <g transform="matrix(1.3333333,0,0,-1.3333333,0,793.70667)">
               {simleTextPaths.map((pathObj, idx) => (
@@ -579,11 +401,33 @@ const SimLELogoCreator = () => {
               ))}
             </g>
           </g>
-
           {textRender}
         </g>
-      </svg>
     );
+
+    if (type === 'logo') {
+      return (
+        <svg
+          viewBox={`0 0 ${totalWidth} ${textBlockHeight}`}
+        >
+          {/* Narysowany Sygnet z wyrównaniem do 0,0 i nałożoną skalą */}
+          {sygnet}
+          {/* Blok z Logotypem i Nazwą Projektu */}
+          {logo}
+        </svg>
+      );
+    } 
+    else if (type === 'sygnet') {
+      return (
+        <svg
+          viewBox={`0 0 ${totalWidth} ${textBlockHeight}`}
+        >
+          {/* Narysowany Sygnet z wyrównaniem do 0,0 i nałożoną skalą */}
+          {sygnet}
+        </svg>
+      );  
+    }
+    
   };
 
   return (
@@ -798,8 +642,11 @@ const SimLELogoCreator = () => {
             <Eye className="w-4 h-4 text-[#062D34]" />
             Wizualizacja Logo
           </h2>
-          <div className="w-full flex-1 min-h-[160px] bg-[#f8fafc] border border-gray-100 rounded-lg flex items-center justify-center p-8 overflow-x-auto">
-            {renderVisualization()}
+          <div id="logo-visualization" className="w-full flex-1 min-h-[160px] bg-[#f8fafc] border border-gray-100 rounded-lg flex items-center justify-center p-8 overflow-x-auto">
+            {renderSVG("logo")}
+          </div>
+          <div id="sygnet-visualization" className="hidden">
+            {renderSVG("sygnet")}
           </div>
         </section>
 
