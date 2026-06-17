@@ -1,4 +1,5 @@
 # **Kreator Logo SimLE**
+[![Netlify Status](https://api.netlify.com/api/v1/badges/f12eb811-2b34-49a5-899e-e350b714f83c/deploy-status)](https://app.netlify.com/projects/simle-logo/deploys)
 
 Projekt narzędzia do tworzenia sygnetów i logotypów w stylu marki SimLE, oparty na technologii React oraz TypeScript.
 
