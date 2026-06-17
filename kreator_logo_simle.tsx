@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Download, Trash2, Eraser, Palette, MousePointer2, Plus } from 'lucide-react';
+import { Download, Trash2, Eraser, Palette, MousePointer2, Plus, Link } from 'lucide-react';
 
 const SimLELogoCreator = () => {
   const [selectedColor, setSelectedColor] = useState('#F58220'); // Domyślny pomarańczowy
+  const [toastMessage, setToastMessage] = useState('');
   
-  // Wczytywanie stanu rysunku z pamięci przeglądarki (localStorage)
+  // Wczytywanie stanu rysunku z URL (Base64) lub w ostateczności z pamięci przeglądarki
   const [paintedTriangles, setPaintedTriangles] = useState(() => {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const dataParam = urlParams.get('d');
+      if (dataParam) {
+         const parsed = JSON.parse(atob(dataParam));
+         if (parsed.triangles) return parsed.triangles;
+      }
       const saved = localStorage.getItem('simle_painted_triangles');
       return saved ? JSON.parse(saved) : {};
     } catch (e) {
@@ -16,9 +23,15 @@ const SimLELogoCreator = () => {
 
   const [isDrawing, setIsDrawing] = useState(false);
   
-  // Wczytywanie własnych kolorów z pamięci przeglądarki (localStorage)
+  // Wczytywanie własnych kolorów z URL (Base64) lub w ostateczności z pamięci przeglądarki
   const [customColors, setCustomColors] = useState(() => {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const dataParam = urlParams.get('d');
+      if (dataParam) {
+         const parsed = JSON.parse(atob(dataParam));
+         if (parsed.colors) return parsed.colors;
+      }
       const saved = localStorage.getItem('simle_custom_colors');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
@@ -28,15 +41,21 @@ const SimLELogoCreator = () => {
   
   const [tempColor, setTempColor] = useState('#000000');
 
-  // Efekt zapisujący stan rysunku za każdym razem, gdy się zmieni
+  // Efekt zapisujący stan w localStorage oraz kodujący go do Base64 w pasku adresu
   useEffect(() => {
     localStorage.setItem('simle_painted_triangles', JSON.stringify(paintedTriangles));
-  }, [paintedTriangles]);
-
-  // Efekt zapisujący własne kolory za każdym razem, gdy dodasz nowy
-  useEffect(() => {
     localStorage.setItem('simle_custom_colors', JSON.stringify(customColors));
-  }, [customColors]);
+    
+    try {
+      const stateToEncode = { triangles: paintedTriangles, colors: customColors };
+      const encoded = btoa(JSON.stringify(stateToEncode));
+      const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?d=${encoded}`;
+      // Zmieniamy adres URL bez przeładowywania strony
+      window.history.replaceState({ path: newUrl }, '', newUrl);
+    } catch(e) {
+      console.error("Błąd kodowania adresu URL", e);
+    }
+  }, [paintedTriangles, customColors]);
 
   // Paleta kolorów bazująca na standardowych kolorach identyfikacji studenckiej / tech
   const colors = [
@@ -44,8 +63,11 @@ const SimLELogoCreator = () => {
     { name: 'Granatowy (Główny)', value: '#163A5F' },
     { name: 'Ciemny Granat', value: '#0B1D30' },
     { name: 'Jasny Niebieski', value: '#4BB7E6' },
-    { name: 'Żółty', value: '#F7941D' },
-    { name: 'Jasny Szary', value: '#E6E7E8' },
+    { name: 'Oliwkowy', value: '#D4CA05' }, 
+    { name: 'Ciemnozielony', value: '#3B6329' }, 
+    { name: 'Morski', value: '#2B7A87' }, 
+    { name: 'Ciemny Morski', value: '#062D34' },
+    { name: 'Szary (Podany)', value: '#D4D3D3' }, 
     { name: 'Ciemny Szary', value: '#58595B' },
     { name: 'Biały', value: '#FFFFFF' }
   ];
@@ -67,17 +89,24 @@ const SimLELogoCreator = () => {
         let x = c * side / 2;
         let y = r * h;
 
+        // Funkcja formatująca punkty do stałej dokładności - niezbędne dla
+        // perfekcyjnego łączenia wierzchołków i usuwania problemów z precyzją JS
+        const pt = (px, py) => `${px.toFixed(3)},${py.toFixed(3)}`;
+
         // Jeśli (r + c) jest parzyste -> trójkąt skierowany w górę
         if ((r + c) % 2 === 0) {
           triangles.push({
             id: `${r}-${c}`,
-            points: `${x},${y + h} ${x + side / 2},${y} ${x + side},${y + h}`
+            // Zapis zgodny z ruchem wskazówek zegara (CW)
+            points: `${pt(x, y + h)} ${pt(x + side / 2, y)} ${pt(x + side, y + h)}`
           });
         } else {
           // Jeśli nieparzyste -> trójkąt skierowany w dół
           triangles.push({
             id: `${r}-${c}`,
-            points: `${x},${y} ${x + side / 2},${y + h} ${x + side},${y}`
+            // Modyfikacja zapisu, aby również był zgodny z ruchem wskazówek zegara (CW)
+            // Ujednolicony wektor krawędzi pozwala algorytmowi łączyć ścieżki SVG
+            points: `${pt(x, y)} ${pt(x + side, y)} ${pt(x + side / 2, y + h)}`
           });
         }
       }
@@ -107,24 +136,130 @@ const SimLELogoCreator = () => {
   }, [selectedColor]);
 
   const clearCanvas = () => {
-    if (window.confirm('Czy na pewno chcesz wyczyścić całe pole robocze?')) {
-      setPaintedTriangles({});
-    }
+    setPaintedTriangles({});
+  };
+
+  const copyShareLink = () => {
+    const el = document.createElement('textarea');
+    el.value = window.location.href;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    
+    setToastMessage('Link z projektem skopiowany do schowka!');
+    setTimeout(() => setToastMessage(''), 3000);
   };
 
   const downloadSvg = () => {
-    const svgElement = document.getElementById('logo-canvas');
-    if (!svgElement) return;
+    // Filtrujemy tylko pomalowane trójkąty
+    const paintedShapes = gridConfig.triangles.filter(t => paintedTriangles[t.id] !== undefined);
 
-    const serializer = new XMLSerializer();
-    let source = serializer.serializeToString(svgElement);
-
-    // Dodanie przestrzeni nazw jeśli ich brakuje
-    if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
-      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    if (paintedShapes.length === 0) {
+      setToastMessage('Brak elementów do eksportu!');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
     }
 
-    const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+    // Obliczanie obszaru zajmowanego tylko przez narysowany kształt (bounding box)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    paintedShapes.forEach(triangle => {
+      triangle.points.split(' ').forEach(pt => {
+        const [x, y] = pt.split(',').map(Number);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      });
+    });
+
+    // Parametry bazowe trójkąta z gridConfig do obliczenia obszaru ochronnego
+    const side = 40; 
+    const h = side * Math.sqrt(3) / 2; 
+
+    // Obszar ochronny: 2 jednostki trójkątów z każdej strony
+    const paddingX = side * 2; // 2 pełne szerokości w poziomie
+    const paddingY = h * 2;    // 2 pełne wysokości w pionie
+
+    const vX = minX - paddingX;
+    const vY = minY - paddingY;
+    const vWidth = (maxX - minX) + paddingX * 2;
+    const vHeight = (maxY - minY) + paddingY * 2;
+
+    // --- ŁĄCZENIE TRÓJKĄTÓW W JEDNOLITE ŚCIEŻKI SVG (UNION PATHS) ---
+    const colorGroups = {};
+    paintedShapes.forEach(t => {
+      const color = paintedTriangles[t.id];
+      if (!colorGroups[color]) colorGroups[color] = [];
+      colorGroups[color].push(t);
+    });
+
+    let pathsSvg = '';
+
+    for (const [color, triangles] of Object.entries(colorGroups)) {
+      const edges = new Map();
+
+      // Krok 1: Identyfikacja wszystkich krawędzi trójkątów
+      triangles.forEach(t => {
+        const pts = t.points.split(' ');
+        for (let i = 0; i < 3; i++) {
+          const from = pts[i];
+          const to = pts[(i + 1) % 3];
+          const edgeKey = `${from}|${to}`;
+          const reverseKey = `${to}|${from}`;
+
+          // Jeżeli odwrotna krawędź już istnieje, oznacza to że dwa trójkąty tego samego koloru 
+          // stykają się tym bokiem. Usuwamy ją, by pozostawić wyłącznie zarys zewnętrzny.
+          if (edges.has(reverseKey)) {
+            edges.delete(reverseKey);
+          } else {
+            edges.set(edgeKey, { from, to });
+          }
+        }
+      });
+
+      // Krok 2: Konstruowanie ciągłych ścieżek z odfiltrowanych krawędzi brzegowych
+      let colorPaths = '';
+      while (edges.size > 0) {
+        // Bierzemy pierwszą dowolną krawędź ze stosu jako start
+        const [firstKey, firstEdge] = edges.entries().next().value;
+        edges.delete(firstKey);
+
+        let currentPath = `M ${firstEdge.from.replace(',', ' ')} L ${firstEdge.to.replace(',', ' ')}`;
+        let currentTo = firstEdge.to;
+        const startNode = firstEdge.from;
+
+        // Szukamy następników budując obrys aż wrócimy do punktu startu
+        while (currentTo !== startNode) {
+          let nextEdgeKey = null;
+          for (const [key, edge] of edges.entries()) {
+            if (edge.from === currentTo) {
+              nextEdgeKey = key;
+              break;
+            }
+          }
+
+          if (!nextEdgeKey) break; // Awaryjne przerwanie (na siatce się nie zdarza)
+
+          const nextEdge = edges.get(nextEdgeKey);
+          currentPath += ` L ${nextEdge.to.replace(',', ' ')}`;
+          currentTo = nextEdge.to;
+          edges.delete(nextEdgeKey);
+        }
+        currentPath += ' Z';
+        colorPaths += currentPath + ' ';
+      }
+
+      // Finalne zapisanie całego konturu dla danego koloru (może składać się z wysp/dziur)
+      pathsSvg += `  <path d="${colorPaths.trim()}" fill="${color}" />\n`;
+    }
+
+    // Generowanie czystego kodu SVG
+    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${vWidth}" height="${vHeight}" viewBox="${vX} ${vY} ${vWidth} ${vHeight}">\n`;
+    svgContent += pathsSvg;
+    svgContent += `</svg>`;
+
+    const svgBlob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
     const svgUrl = URL.createObjectURL(svgBlob);
     
     const downloadLink = document.createElement("a");
@@ -133,16 +268,19 @@ const SimLELogoCreator = () => {
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);
+
+    setToastMessage('Logo pobrane w formacie SVG!');
+    setTimeout(() => setToastMessage(''), 3000);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
       {/* Nagłówek */}
-      <header className="bg-[#163A5F] text-white p-6 shadow-md">
+      <header className="bg-[#062D34] text-white p-6 shadow-md">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-wider flex items-center gap-2">
-              <Palette className="w-6 h-6 text-[#F58220]" />
+              <Palette className="w-6 h-6 text-[#D4CA05]" />
               Kreator Logo / Sygnetu
             </h1>
             <p className="text-gray-300 text-sm mt-1 max-w-xl">
@@ -158,8 +296,15 @@ const SimLELogoCreator = () => {
               Wyczyść
             </button>
             <button
+              onClick={copyShareLink}
+              className="flex items-center gap-2 px-4 py-2 bg-[#D4CA05]/20 hover:bg-[#D4CA05]/30 text-[#D4CA05] border border-[#D4CA05]/50 rounded-md transition-colors text-sm font-medium"
+            >
+              <Link className="w-4 h-4" />
+              Udostępnij
+            </button>
+            <button
               onClick={downloadSvg}
-              className="flex items-center gap-2 px-4 py-2 bg-[#F58220] hover:bg-[#d97018] rounded-md transition-colors text-sm font-medium shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-[#D4CA05] hover:bg-[#b8ae04] text-[#062D34] rounded-md transition-colors text-sm font-bold shadow-sm"
             >
               <Download className="w-4 h-4" />
               Pobierz SVG
@@ -167,6 +312,14 @@ const SimLELogoCreator = () => {
           </div>
         </div>
       </header>
+
+      {/* Komunikat o skopiowaniu (Toast) */}
+      {toastMessage && (
+        <div className="fixed top-24 left-1/2 transform -translate-x-1/2 bg-[#062D34] text-[#D4CA05] px-6 py-3 rounded-md shadow-lg border border-[#D4CA05]/20 z-50 flex items-center gap-2 transition-opacity">
+          <Link className="w-4 h-4" />
+          <span className="font-medium text-sm">{toastMessage}</span>
+        </div>
+      )}
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 flex flex-col lg:flex-row gap-6">
         
@@ -176,14 +329,14 @@ const SimLELogoCreator = () => {
           
           <div className="mb-6">
             <h3 className="text-md font-semibold mb-3 flex items-center gap-2">
-              <MousePointer2 className="w-4 h-4 text-gray-500" />
+              <MousePointer2 className="w-4 h-4 text-[#062D34]" />
               Akcja
             </h3>
             <button
               onClick={() => setSelectedColor(null)}
               className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border transition-all ${
                 selectedColor === null 
-                  ? 'bg-red-50 border-red-200 text-red-700 shadow-sm' 
+                  ? 'bg-[#062D34]/5 border-[#062D34]/30 text-[#062D34] shadow-sm font-medium' 
                   : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -194,7 +347,7 @@ const SimLELogoCreator = () => {
 
           <div>
             <h3 className="text-md font-semibold mb-3 flex items-center gap-2">
-              <Palette className="w-4 h-4 text-gray-500" />
+              <Palette className="w-4 h-4 text-[#062D34]" />
               Paleta kolorów
             </h3>
             <div className="grid grid-cols-2 gap-3">
@@ -251,7 +404,7 @@ const SimLELogoCreator = () => {
                     }
                     setSelectedColor(tempColor);
                   }}
-                  className="flex-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 text-sm font-medium py-2 rounded-md flex items-center justify-center gap-1 transition-colors shadow-sm"
+                  className="flex-1 bg-gray-50 hover:bg-[#D4CA05]/20 border border-gray-200 hover:border-[#D4CA05] text-gray-700 hover:text-[#062D34] text-sm font-medium py-2 rounded-md flex items-center justify-center gap-1 transition-colors shadow-sm"
                 >
                   <Plus className="w-4 h-4" />
                   Zatwierdź
@@ -260,7 +413,7 @@ const SimLELogoCreator = () => {
             </div>
           </div>
           
-          <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-100 text-sm text-blue-800">
+          <div className="mt-8 p-4 bg-[#D4CA05]/10 rounded-lg border border-[#D4CA05]/30 text-sm text-[#062D34]">
             <p><strong>Wskazówka:</strong> Przytrzymaj lewy przycisk myszy i przeciągnij po siatce, aby szybko zamalować wiele trójkątów na raz.</p>
           </div>
         </aside>
