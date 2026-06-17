@@ -245,7 +245,15 @@ const SimLELogoCreator = () => {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  const downloadExport = (type: 'sygnet' | 'logo') => {
+  const downloadFileName = (type: 'sygnet' | 'logo') => {
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const safeProjectName = projectName.trim().replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_') || 'Projekt';
+      const typeName = type === 'logo' ? 'Logo' : 'Sygnet';
+      return `SimLE_${typeName}_${safeProjectName}_${dateStr}`;
+  }
+
+  const downloadSVG = (type: 'sygnet' | 'logo') => {
     requestAnimationFrame(() => {
       const svgElement = document.getElementById(`${type}-visualization`);
 
@@ -261,24 +269,70 @@ const SimLELogoCreator = () => {
 
       const svgBlob = new Blob([svgContent.trim()], { type: "image/svg+xml;charset=utf-8" });
       const svgUrl = URL.createObjectURL(svgBlob);
-      
-      const date = new Date();
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const safeProjectName = projectName.trim().replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_') || 'Projekt';
-      const typeName = type === 'logo' ? 'Logo' : 'Sygnet';
-      const fileName = `SimLE_${typeName}_${safeProjectName}_${dateStr}.svg`;
+    
       
       const downloadLink = document.createElement("a");
       downloadLink.href = svgUrl;
-      downloadLink.download = fileName;
+      downloadLink.download = `${downloadFileName(type)}.svg`;
       document.body.appendChild(downloadLink);
       downloadLink.click();
       document.body.removeChild(downloadLink);
 
-      setToastMessage(`Pobrano plik: ${fileName}`);
+      setToastMessage(`Pobrano plik: ${downloadFileName(type)}.svg`);
       
       setTimeout(() => setToastMessage(''), 4000);
       });
+  };
+
+  const downloadPNG = (type: 'sygnet' | 'logo') => {
+    const svgElement = document.getElementById(`${type}-visualization`);
+    if (!svgElement) return;
+
+    // 1. Serializacja SVG
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgElement.childNodes[0]);
+
+    const viewBox = svgElement.getAttribute('viewBox')?.split(' ') || ['0', '0', '1000', '500'];
+    const width = parseFloat(viewBox[2]);
+    const height = parseFloat(viewBox[3]);
+    
+    // 2. Utworzenie obiektu Blob i URL dla obrazu
+    const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+
+    // 3. Rysowanie na canvasie
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      // Opcjonalnie: wypełnij tło na biało (SVG często ma przezroczyste tło)
+      // ctx.fillStyle = "#ffffff";
+      // ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // 4. Pobieranie pliku
+      const pngUrl = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.href = pngUrl;
+      downloadLink.download = `${downloadFileName(type)}.png`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+
+      setToastMessage(`Pobrano plik: ${downloadFileName(type)}.png`);
+      
+      setTimeout(() => setToastMessage(''), 4000);
+      
+      // Sprzątanie
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
   };
 
   const renderSVG = (type: 'sygnet' | 'logo') => {
@@ -650,19 +704,35 @@ const SimLELogoCreator = () => {
           </div>
         </section>
 
-        {/* Przyciski pobierania */}
+        {/* Przyciski pobierania SVG*/}
         <div className="flex flex-col sm:flex-row gap-4 justify-center mt-2 mb-8">
             <button 
-              onClick={() => downloadExport('sygnet')} 
+              onClick={() => downloadSVG('sygnet')} 
               className="flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-[#062D34] text-[#062D34] rounded-lg font-semibold hover:bg-gray-50 transition shadow-sm"
             >
                 <Hexagon className="w-5 h-5" /> Pobierz Sygnet (SVG)
             </button>
             <button 
-              onClick={() => downloadExport('logo')} 
+              onClick={() => downloadSVG('logo')} 
               className="flex items-center justify-center gap-2 px-6 py-3 bg-[#062D34] text-white rounded-lg font-semibold hover:bg-black transition shadow-sm"
             >
                 <Component className="w-5 h-5" /> Pobierz Pełne Logo (SVG)
+            </button>
+        </div>
+
+        {/* Przyciski pobierania PNG*/}
+        <div className="flex flex-col sm:flex-row gap-4 justify-center mt-2 mb-8">
+            <button 
+              onClick={() => downloadPNG('sygnet')} 
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-[#062D34] text-[#062D34] rounded-lg font-semibold hover:bg-gray-50 transition shadow-sm"
+            >
+                <Hexagon className="w-5 h-5" /> Pobierz Sygnet (PNG)
+            </button>
+            <button 
+              onClick={() => downloadPNG('logo')} 
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-[#062D34] text-white rounded-lg font-semibold hover:bg-black transition shadow-sm"
+            >
+                <Component className="w-5 h-5" /> Pobierz Pełne Logo (PNG)
             </button>
         </div>
 
